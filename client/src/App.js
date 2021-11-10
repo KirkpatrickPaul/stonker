@@ -23,7 +23,7 @@ useEffect(() => {
   return (
     <UserProvider>
     <Router>
-      <div>
+      <div className="outer">
       <Navbar />
       <Wrapper>
       <Route exact path="/" component={Login} />

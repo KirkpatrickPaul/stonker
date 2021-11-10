@@ -1,4 +1,8 @@
 body {
-    background-color: #FCFAFA; 
+  background-color: #fcfafa;
 }
 
+.outer {
+  position: relative;
+  min-height: 100vh;
+}
