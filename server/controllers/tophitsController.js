@@ -5,7 +5,7 @@ module.exports = {
   findAll: function(req, res) {
     db.top_hits
       .findAll({ include: [db.Company] })
-      .then((dbModel) => res.json(dbModel))
+      .then((dbModel) => res.json(dbModel.reverse()))
       .catch((err) => res.status(422).json(err));
   },
 

@@ -9,18 +9,8 @@ import { getTopHits } from '../../utils/API';
 class InfoContainer extends Component {
   state = {
     hits: []
-    //   filterRun: [],
-    //   nameSort: 0,
-    //   search: "",
   };
 
-  // topHits = async () => {
-  //
-  //     getTopHit.data.forEach((hits, id) => {
-  //       hits.key=id;
-  //     });
-  //     this.setState({ hits: getTopHit.data });
-  // };
 
   componentDidMount() {
     getTopHits().then((res) => {
@@ -28,14 +18,6 @@ class InfoContainer extends Component {
     });
   }
 
-  //   handleInputChange = (event) => {
-  //       const { value } = event.target;
-  //       const filterRun = this.state.hits.filter((hits) =>
-  //         hits.symbol.includes(value));
-  //         this.setState({
-  //           search: value, filterRun,
-  //         });
-  //       };
 
   render() {
     return (
