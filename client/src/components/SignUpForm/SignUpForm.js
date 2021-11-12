@@ -31,6 +31,7 @@ const useStyles = makeStyles((theme) => ({
 }));
 
 function SignUpForm() {
+  const classes = useStyles();
   let history = useHistory();
   // all hooks here forever and ever
   const [loginData, setLoginData] = useState({
@@ -66,7 +67,7 @@ function SignUpForm() {
                 Sign Up
               </Typography>
               <form
-                //className={classes.root}
+                className={classes.root}
                 noValidate
                 autoComplete='off'
                 onSubmit={handleSubmit}
