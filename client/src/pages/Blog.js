@@ -7,7 +7,7 @@ import { useParams } from 'react-router-dom';
 import { useUserProvider } from '../utils/UserProvider';
 import LoginForm from '../components/LoginForm/LoginForm';
 
-function Blog(props) {
+function Blog() {
   const { user, setUser } = useUserProvider();
   const [hit, setHit] = useState({
     Comments: [],

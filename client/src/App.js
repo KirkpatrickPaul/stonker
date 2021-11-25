@@ -9,6 +9,7 @@ import Home from "./pages/Home";
 import Blog from "./pages/Blog";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import Profile from "./pages/Profile";
 import { getTopHits } from "./utils/API";
 import Footer from './components/footer/Footer';
 function App() {
@@ -31,6 +32,7 @@ useEffect(() => {
           <Route path="/blog/:id" component={Blog} />
           <Route exact path="/login" component={Login} />
           <Route exact path="/signup" component={Signup} />
+          <Route exact path="/profile" component={Profile} />
       </Wrapper> 
       <Footer />
       </div>
