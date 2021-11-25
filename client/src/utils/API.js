@@ -21,5 +21,9 @@ export function newComment(commentData) {
 }
 
 export function getCommentsByHit(id) {
-  return axios.get('/api/comments/' + id)
+  return axios.get('/api/comments/' + id);
+}
+
+export function getUserInfo(id) {
+  return axios.get('/api/usersettings/' + id);
 }
