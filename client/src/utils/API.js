@@ -25,5 +25,5 @@ export function getCommentsByHit(id) {
 }
 
 export function getUserInfo(id) {
-  return axios.get('/api/usersettings/' + id);
+  return axios.get('/api/profile/' + id);
 }
