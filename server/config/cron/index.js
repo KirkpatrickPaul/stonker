@@ -85,11 +85,15 @@ class TrendHandler {
       counter++;
     }
     if (!company) {
-      console.log('scheduleRecurringCollection: No company found to collect trends for.');
-      this.stop();
-      return;
+      company = await this.getCompany(false);
+      if (!company) {
+        console.log('scheduleRecurringCollection: No company found to collect trends for.');
+        this.stop();
+        return;
+      }
     }
     const trend = await this.createTrend(company);
+    // console.log("trend: " + JSON.stringify(trend));
     if (trend && company.Trends && company.Trends[0]) {
       checkHit(company, trend);
     }
@@ -135,6 +139,9 @@ class TrendHandler {
       return;
     }
     const trendResults = JSON.parse(res).default.timelineData;
+    if (trendResults.length === 0 || !trendResults[0].value || trendResults[0].value.length === 0) {
+      throw new Error(`No trend data found for ${company.symbol}. Response: ${res}`);
+    }
     const stdDev = standardDev(trendResults.map((obj) => obj.value[0]));
     const dayifier = 24 * 60 * 60;
     const day6 = this.#midnight / (dayifier * 1000);
@@ -196,7 +203,7 @@ class TrendHandler {
       { checkedAt: this.#midnight },
       { where: { id: dbData.CompanyId } }
     );
-    if (updated && updated.OK && newTrend && newTrend.OK) {
+    if (updated && newTrend && newTrend.id) {
       this.decrementToCollect();
       return newTrend;
     } else console.log(`updated: ${updated}`)
