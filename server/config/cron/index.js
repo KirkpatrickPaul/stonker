@@ -35,13 +35,13 @@ class TrendHandler {
   
   async initialize() {
     this.stop(true);
+    this.#midnight = new Date();
+    this.#midnight.setUTCHours(0, 0, 0, 0);
     try {
       const companyCount = await db.Company.count({
         where: { checkedAt: { [Op.lt]: this.#midnight } }
       });
       this.#toCollectCount = companyCount;
-      this.#midnight = new Date();
-      this.#midnight.setUTCHours(0, 0, 0, 0);
     } catch (err) {
         console.error(err);
     }
@@ -123,7 +123,14 @@ class TrendHandler {
   async createTrend(company) {
   try {
     const res = await searchTrends(company.symbol, this.#midnight);
-    if (!res || res[0] === '<') {
+    let failed = false;
+    let trendResults = null;
+    if (!res || res[0] === '<') failed = true;
+    if (!failed) {
+      trendResults = JSON.parse(res).default.timelineData;
+      if (!trendResults || trendResults.length === 0 || !trendResults[0].value || trendResults[0].value.length === 0) failed = true;
+    }
+    if (failed) {
       if (this.#failures[company.symbol]) {
         this.#failures[company.symbol]++;
         console.error(`createTrend: Failed to get trends for ${company.symbol}. Attempt ${this.#failures[company.symbol]}.`);
@@ -137,10 +144,6 @@ class TrendHandler {
         console.error(`createTrend: Failed to get trends for ${company.symbol}. Attempt 1.`);
       }
       return;
-    }
-    const trendResults = JSON.parse(res).default.timelineData;
-    if (trendResults.length === 0 || !trendResults[0].value || trendResults[0].value.length === 0) {
-      throw new Error(`No trend data found for ${company.symbol}. Response: ${res}`);
     }
     const stdDev = standardDev(trendResults.map((obj) => obj.value[0]));
     const dayifier = 24 * 60 * 60;
