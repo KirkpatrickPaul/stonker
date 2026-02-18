@@ -61,6 +61,11 @@ module.exports = function(sequelize, DataTypes) {
         allowNull: false
       }
     });
+    Trend.belongsTo(models.TrendType, {
+      foreignKey: {
+        allowNull: false
+      }
+    });
   };
   return Trend;
 };
