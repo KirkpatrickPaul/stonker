@@ -1,6 +1,6 @@
 
 use stonker;
-
+-- These won't work for now until migration is complete
 INSERT INTO top_hits (indicator,created_at,updated_at,company_id)
 values
  (10,now(),now(),1)
