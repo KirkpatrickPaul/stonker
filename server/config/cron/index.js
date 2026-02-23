@@ -22,6 +22,7 @@ class TrendHandler {
   #stoppedTrying = [];
   #toCollectCount = 0;
   #timerId = null;
+  trendTypes = null;
   
   set newDay(date) {
     this.#midnight = new Date(date);
@@ -37,11 +38,15 @@ class TrendHandler {
     this.stop(true);
     this.#midnight = new Date();
     this.#midnight.setUTCHours(0, 0, 0, 0);
+    this.trendTypes = null;
     try {
       const companyCount = await db.Company.count({
         where: { checkedAt: { [Op.lt]: this.#midnight } }
       });
       this.#toCollectCount = companyCount;
+
+      this.trendTypes = await db.TrendType.findAll();
+      if (!this.trendTypes || this.trendTypes.length === 0) console.log('initialize: No trend types found.');
     } catch (err) {
         console.error(err);
     }
@@ -201,6 +206,7 @@ class TrendHandler {
 
     dbData.standardDeviation = stdDev.toFixed(3);
     dbData.CompanyId = company.id;
+    dbData.TrendTypeId = 1; // currently only one trend type, so hardcoding to 1. Will need to be dynamic if more trend types are added in the future.
     const newTrend = await db.Trend.create(dbData);
     const updated = await db.Company.update(
       { checkedAt: this.#midnight },
