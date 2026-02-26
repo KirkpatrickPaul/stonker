@@ -14,6 +14,8 @@ const scheduledTasks = require("./config/cron");
 const PORT = process.env.PORT || 3001;
 const app = express();
 
+console.log('Admin token from environment variable:', process.env.ADMIN_TOKEN);
+
 // Define middleware here
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -50,11 +52,27 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+app.post('/admin/start_collection',  (req, res) => {
+  console.log('Received request to start trend collection.');
+  console.log('Admin token provided:', req.headers['x-admin-token']);
+  console.log('Expected admin token:', process.env.ADMIN_TOKEN);
+  if (req.headers['x-admin-token'] !== process.env.ADMIN_TOKEN) {
+return res.status(403).json({ error: 'Forbidden: Invalid admin token.' });
+  }
+  try {
+    scheduledTasks();
+    res.status(200).json({ message: 'Trend collection started successfully.' });
+  } catch (err) {      console.error('Error starting trend collection:', err);
+    res.status(500).json({ error: 'Failed to start trend collection.' });
+  }
+});
+
+
 // Dynamically force schema refresh only for 'test'
 const FORCE_SCHEMA = process.env.NODE_ENV === "test";
 
 // Cron job call to check google trends.
-cron.schedule("30 0 19 * * *", scheduledTasks).start();
+cron.schedule("30 0 8,18 * * *", scheduledTasks).start();
 
 db.sequelize
   .authenticate()
