@@ -1,21 +1,47 @@
 /**
- * Migration: Add z_score and standardDeviation fields to top_hits, add TrendTypeId, and create notable_hits table
+ * Migration: Clean up partial migration and properly apply changes
  * 
  * This migration:
- * 1. Adds TrendTypeId foreign key column to top_hits
- * 2. Renames indicator column to z_score
- * 3. Adds standardDeviation column to top_hits
- * 4. Multiplies all existing indicator values by 2
- * 5. Creates the new notable_hits table
+ * 1. Removes the partially applied migration changes
+ * 2. Applies the full migration correctly with proper table references
  */
 
 module.exports = {
   up: async (sequelize) => {
     const transaction = await sequelize.transaction();
     try {
-      // Start transaction for data consistency
-      
-      // First, add the new z_score column with temporary name to preserve data
+      // Check and remove columns if they exist from the failed migration
+      const columns = await sequelize.query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='top_hits' AND COLUMN_NAME IN ('z_score', 'standardDeviation', 'TrendTypeId')`,
+        { transaction }
+      );
+
+      // Drop columns from failed attempt if they exist
+      if (columns[0].length > 0) {
+        // Drop foreign key if it exists
+        try {
+          await sequelize.query(
+            `ALTER TABLE top_hits DROP FOREIGN KEY fk_top_hits_trend_type`,
+            { transaction }
+          );
+        } catch (e) {
+          // Foreign key may not exist, continue
+        }
+
+        // Drop the columns one by one
+        for (const col of columns[0]) {
+          try {
+            await sequelize.query(
+              `ALTER TABLE top_hits DROP COLUMN ${col.COLUMN_NAME}`,
+              { transaction }
+            );
+          } catch (e) {
+            // Column may not exist
+          }
+        }
+      }
+
+      // Now apply the migration properly
       await sequelize.query(
         `ALTER TABLE top_hits ADD COLUMN z_score FLOAT(5, 2) NULL`,
         { transaction }
@@ -39,7 +65,7 @@ module.exports = {
         { transaction }
       );
 
-      // Add foreign key constraint for TrendTypeId
+      // Add foreign key constraint for TrendTypeId with correct table name
       await sequelize.query(
         `ALTER TABLE top_hits ADD CONSTRAINT fk_top_hits_trend_type 
          FOREIGN KEY (TrendTypeId) REFERENCES trend_types(id) ON DELETE SET NULL`,
@@ -54,27 +80,27 @@ module.exports = {
 
       // Create the notable_hits table
       await sequelize.query(
-        `CREATE TABLE notable_hits (
+        `CREATE TABLE IF NOT EXISTS notable_hits (
           id INT AUTO_INCREMENT PRIMARY KEY,
           trigger_type ENUM('multi_trend_anomaly', 'composite_surge', 'sustained_spike') NOT NULL,
           composite_score FLOAT(8, 4) NOT NULL,
-          CompanyId INT NOT NULL,
-          createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          FOREIGN KEY (CompanyId) REFERENCES companies(id) ON DELETE CASCADE,
-          INDEX idx_company_id (CompanyId)
+          company_id INT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+          INDEX idx_company_id (company_id)
         )`,
         { transaction }
       );
 
       // Create the junction table for notable_hits and top_hits
       await sequelize.query(
-        `CREATE TABLE notable_hits_top_hits (
+        `CREATE TABLE IF NOT EXISTS notable_hits_top_hits (
           id INT AUTO_INCREMENT PRIMARY KEY,
           notable_hits_id INT NOT NULL,
           top_hits_id INT NOT NULL,
-          createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           UNIQUE KEY unique_association (notable_hits_id, top_hits_id),
           FOREIGN KEY (notable_hits_id) REFERENCES notable_hits(id) ON DELETE CASCADE,
           FOREIGN KEY (top_hits_id) REFERENCES top_hits(id) ON DELETE CASCADE,
@@ -85,7 +111,7 @@ module.exports = {
       );
 
       await transaction.commit();
-      console.log('Migration: Successfully added z_score and TrendTypeId to top_hits, added standardDeviation, and created notable_hits table');
+      console.log('Migration: Successfully completed z_score, TrendTypeId, standardDeviation migration and created notable_hits tables');
     } catch (err) {
       await transaction.rollback();
       throw err;
@@ -122,31 +148,35 @@ module.exports = {
       );
 
       // Drop foreign key constraint
-      await sequelize.query(
-        `ALTER TABLE top_hits DROP FOREIGN KEY fk_top_hits_trend_type`,
-        { transaction }
-      );
+      try {
+        await sequelize.query(
+          `ALTER TABLE top_hits DROP FOREIGN KEY fk_top_hits_trend_type`,
+          { transaction }
+        );
+      } catch (e) {
+        // Constraint may not exist
+      }
 
       // Drop TrendTypeId column
       await sequelize.query(
-        `ALTER TABLE top_hits DROP COLUMN TrendTypeId`,
+        `ALTER TABLE top_hits DROP COLUMN IF EXISTS TrendTypeId`,
         { transaction }
       );
 
       // Drop standardDeviation column
       await sequelize.query(
-        `ALTER TABLE top_hits DROP COLUMN standardDeviation`,
+        `ALTER TABLE top_hits DROP COLUMN IF EXISTS standardDeviation`,
         { transaction }
       );
 
       // Drop z_score column
       await sequelize.query(
-        `ALTER TABLE top_hits DROP COLUMN z_score`,
+        `ALTER TABLE top_hits DROP COLUMN IF EXISTS z_score`,
         { transaction }
       );
 
       await transaction.commit();
-      console.log('Migration: Successfully reverted z_score, TrendTypeId, standardDeviation migration and dropped notable_hits table');
+      console.log('Migration: Successfully reverted z_score, TrendTypeId, standardDeviation migration and dropped notable_hits tables');
     } catch (err) {
       await transaction.rollback();
       throw err;

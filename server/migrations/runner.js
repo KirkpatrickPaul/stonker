@@ -25,7 +25,7 @@ const fs = require('fs');
 const migrationsDir = __dirname;
 const migrationFiles = fs
   .readdirSync(migrationsDir)
-  .filter((file) => file.startsWith('00') && file.endsWith('.js'))
+  .filter((file) => file.match(/^\d+.*\.js$/) && !file.endsWith('runner.js'))
   .sort();
 
 async function runMigration() {
@@ -35,7 +35,7 @@ async function runMigration() {
       process.exit(0);
     }
 
-    // Run the latest/first migration
+    // Run the latest migration
     const migrationFile = migrationFiles[migrationFiles.length - 1];
     const migration = require(path.join(migrationsDir, migrationFile));
 
