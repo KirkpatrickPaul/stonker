@@ -23,6 +23,12 @@ module.exports = function(sequelize, DataTypes) {
       },
       onDelete: "set null"
     });
+    TrendType.hasMany(models.top_hits, {
+      foreignKey: {
+        allowNull: true
+      },
+      onDelete: "set null"
+    });
   };
   return TrendType;
 };
