@@ -6,8 +6,8 @@ const checkHit = require('./checkHit');
 const checkNotableHit = require('./checkNotableHit');
 const sequelize = require('sequelize');
 
-const MINIMUM_TREND_INTERVAL = 20 * 1000; // 20 seconds in milliseconds
-const MAXIMUM_ADDITIONAL_INTERVAL = 35 * 1000; // 35 seconds in milliseconds
+const MINIMUM_TREND_INTERVAL = 10 * 1000; // 10 seconds in milliseconds
+const MAXIMUM_ADDITIONAL_INTERVAL = 40 * 1000; // 40 seconds in milliseconds
 const MAXIMUM_RETRIES = 3;
 
 const standardDev = function(array) {
@@ -150,9 +150,14 @@ class TrendHandler {
       }
     }
 
+    // Schedule the next collection with a random interval
+    const timeMiddle = MAXIMUM_ADDITIONAL_INTERVAL / 2;
+    const lowVal = MINIMUM_TREND_INTERVAL + Math.floor(Math.random() * timeMiddle);
+    const highVal = MINIMUM_TREND_INTERVAL + timeMiddle + Math.floor(Math.random() * timeMiddle);
     const timer = setTimeout(() => {
       this.scheduleRecurringCollection();
-    }, Math.floor((Math.random() * MAXIMUM_ADDITIONAL_INTERVAL) + MINIMUM_TREND_INTERVAL));
+      
+    }, (lowVal + Math.floor((Math.random() * highVal) )));
     this.#timerId = timer;
   }
 
