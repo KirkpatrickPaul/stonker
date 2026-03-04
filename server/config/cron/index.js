@@ -7,7 +7,7 @@ const sequelize = require('sequelize');
 
 const MINIMUM_TREND_INTERVAL = 20 * 1000; // 20 seconds in milliseconds
 const MAXIMUM_ADDITIONAL_INTERVAL = 35 * 1000; // 35 seconds in milliseconds
-MAXIMUM_RETRIES = 3;
+const MAXIMUM_RETRIES = 3;
 
 const standardDev = function(array) {
   const mean = array.reduce((acc, num) => acc + num) / array.length;
@@ -18,8 +18,8 @@ const standardDev = function(array) {
 
 class TrendHandler {
   #midnight = new Date(new Date().setUTCHours(0, 0, 0, 0));
-  #failures = {};
-  #stoppedTrying = [];
+  #failures = {}; // { symbol: { trendTypeId: retryCount } }
+  #stoppedTrying = []; // { symbol, trendTypeId }
   #toCollectCount = 0;
   #timerId = null;
   trendTypes = null;
@@ -32,6 +32,35 @@ class TrendHandler {
   decrementToCollect() {
     console.log("decrementing toCollectCount. Current count: " + this.#toCollectCount);
     this.#toCollectCount--;
+  }
+
+  getFailureCount(symbol, trendTypeId) {
+    if (!this.#failures[symbol]) {
+      return 0;
+    }
+    return this.#failures[symbol][trendTypeId] || 0;
+  }
+
+  incrementFailure(symbol, trendTypeId) {
+    if (!this.#failures[symbol]) {
+      this.#failures[symbol] = {};
+    }
+    this.#failures[symbol][trendTypeId] = (this.#failures[symbol][trendTypeId] || 0) + 1;
+  }
+
+  hasStoppedTrying(symbol, trendTypeId) {
+    return this.#stoppedTrying.some(item => item.symbol === symbol && item.trendTypeId === trendTypeId);
+  }
+
+  addToStoppedTrying(symbol, trendTypeId) {
+    if (!this.hasStoppedTrying(symbol, trendTypeId)) {
+      this.#stoppedTrying.push({ symbol, trendTypeId });
+    }
+  }
+
+  isCompanyFullyStoppedTrying(symbol) {
+    if (!this.trendTypes) return false;
+    return this.trendTypes.every(tt => this.hasStoppedTrying(symbol, tt.id));
   }
   
   async initialize() {
@@ -67,10 +96,12 @@ class TrendHandler {
     if (this.#toCollectCount > 0 && !silent) {
       console.log(`Stopped with ${this.#toCollectCount} companies left to collect.`);
     }
-    if (!silent && Object.keys(this.#failures).length > 0 ) {
-      let message = 'The following stock symbols had failures to collect: ';
-      for (const [symbol, count] of Object.entries(this.#failures)) {
-        message += `${symbol} (${count} failures), `;
+    if (!silent && Object.keys(this.#failures).length > 0) {
+      let message = 'The following had failures to collect: ';
+      for (const [symbol, trendTypeFailures] of Object.entries(this.#failures)) {
+        for (const [trendTypeId, count] of Object.entries(trendTypeFailures)) {
+          message += `${symbol}/TrendType${trendTypeId} (${count} failures), `;
+        }
       }
       console.log(message);
     }
@@ -82,25 +113,35 @@ class TrendHandler {
   }
 
   async scheduleRecurringCollection() {
-    let company = null;
-    let counter = 0;
-    while (!company) {
-      if (counter > 10) break;
-      company = await this.getCompany();
-      counter++;
+    // Get a company with unchecked trendTypes for today
+    const companyAndTrendType = await this.getCompanyWithUncheckedTrendType();
+    
+    if (!companyAndTrendType) {
+      console.log('scheduleRecurringCollection: No company found with unchecked trend types.');
+      this.stop();
+      return;
     }
-    if (!company) {
-      company = await this.getCompany(false);
-      if (!company) {
-        console.log('scheduleRecurringCollection: No company found to collect trends for.');
-        this.stop();
-        return;
+
+    const { company, trendType } = companyAndTrendType;
+    const trend = await this.createTrend(company, trendType);
+    
+    if (trend) {
+      // Check if all trendTypes for this company have been collected
+      const allCollected = await this.areAllTrendTypesCollected(company.id);
+      if (allCollected) {
+        // Update checked_at only when all trendTypes are done
+        await db.Company.update(
+          { checkedAt: this.#midnight },
+          { where: { id: company.id } }
+        );
+        this.decrementToCollect();
+        console.log(`scheduleRecurringCollection: All trend types collected for ${company.symbol}. Updated checked_at.`);
       }
-    }
-    const trend = await this.createTrend(company);
-    // console.log("trend: " + JSON.stringify(trend));
-    if (trend && company.Trends && company.Trends[0]) {
-      checkHit(company, trend);
+      
+      // Check hit against new trend
+      if (company.Trends && company.Trends[0]) {
+        checkHit(company, trend);
+      }
     }
 
     const timer = setTimeout(() => {
@@ -125,9 +166,103 @@ class TrendHandler {
   }
   }
 
-  async createTrend(company) {
+  async getCompanyWithUncheckedTrendType(randomize = true) {
+    try {
+      let randomOffset = 0;
+      if (randomize) {
+        randomOffset = Math.floor(Math.random() * (this.#toCollectCount - 99));
+        if (randomOffset < 0) randomOffset = 0;
+      }
+      
+      // Get companies that haven't been fully checked
+      const companies = await db.Company.findAll({
+        include: [{
+          model: db.Trend,
+          where: {
+            createdAt: { [Op.gte]: this.#midnight }
+          },
+          required: false
+        }],
+        where: { checkedAt: { [Op.lt]: this.#midnight } },
+        offset: randomOffset,
+        limit: 100
+      });
+
+      if (!companies || companies.length === 0) {
+        return null;
+      }
+
+      // Filter out companies that are completely stopped trying
+      const availableCompanies = companies.filter(
+        company => !this.isCompanyFullyStoppedTrying(company.symbol)
+      );
+
+      if (availableCompanies.length === 0) {
+        return null;
+      }
+
+      // Pick a random available company
+      const company = availableCompanies[Math.floor(Math.random() * availableCompanies.length)];
+
+      // Find unchecked trendTypes for this company
+      const collectedTrendTypeIds = new Set(
+        (company.Trends || []).map(t => t.TrendTypeId)
+      );
+
+      const uncheckedTrendTypes = this.trendTypes.filter(tt => 
+        !collectedTrendTypeIds.has(tt.id) && !this.hasStoppedTrying(company.symbol, tt.id)
+      );
+
+      if (uncheckedTrendTypes.length === 0) {
+        return null;
+      }
+
+      // Pick a random unchecked trendType
+      const trendType = uncheckedTrendTypes[Math.floor(Math.random() * uncheckedTrendTypes.length)];
+
+      return { company, trendType };
+    } catch (err) {
+      console.error("getCompanyWithUncheckedTrendType: " + err);
+      return null;
+    }
+  }
+
+  async areAllTrendTypesCollected(companyId) {
+    try {
+      const trendsToday = await db.Trend.findAll({
+        where: {
+          CompanyId: companyId,
+          createdAt: { [Op.gte]: this.#midnight }
+        }
+      });
+
+      const collectedTrendTypeIds = new Set(
+        trendsToday.map(t => t.TrendTypeId)
+      );
+
+      // Check if all trendTypes have been collected
+      return this.trendTypes.every(tt => collectedTrendTypeIds.has(tt.id));
+    } catch (err) {
+      console.error("areAllTrendTypesCollected: " + err);
+      return false;
+    }
+  }
+
+  async createTrend(company, trendType) {
   try {
-    const res = await searchTrends(company.symbol, this.#midnight);
+    // Build the search query from trendType configuration
+    const fieldValue = company[trendType.dataValues.fieldUsed];
+    if (!fieldValue) {
+      console.warn(`createTrend: Field '${trendType.dataValues.fieldUsed}' not found on company ${company.symbol}. Skipping trend collection for trend type '${trendType.dataValues.name}'.`);
+      this.addToStoppedTrying(company.symbol, trendType.id);
+      return;
+    }
+    
+    // Replace %f in syntax with the actual field value
+    const searchQuery = trendType.dataValues.syntax.replace('%f', fieldValue);
+    console.log(`createTrend: Searching for '${searchQuery}' using trend type '${trendType.dataValues.name}' for company ${company.symbol}`);
+    
+    const res = await searchTrends(searchQuery, this.#midnight);
     let failed = false;
     let trendResults = null;
     if (!res || res[0] === '<') failed = true;
@@ -136,20 +271,19 @@ class TrendHandler {
       if (!trendResults || trendResults.length === 0 || !trendResults[0].value || trendResults[0].value.length === 0) failed = true;
     }
     if (failed) {
-      if (this.#failures[company.symbol]) {
-        this.#failures[company.symbol]++;
-        console.error(`createTrend: Failed to get trends for ${company.symbol}. Attempt ${this.#failures[company.symbol]}.`);
-        if (this.#failures[company.symbol] >= MAXIMUM_RETRIES) {
-          console.log(`createTrend: Maximum retries reached for ${company.symbol}. Stopping attempts to collect trends for this company.`);
-          this.#stoppedTrying.push(company.symbol);
-          this.decrementToCollect();
-        }
-      } else {
-        this.#failures[company.symbol] = 1;
-        console.error(`createTrend: Failed to get trends for ${company.symbol}. Attempt 1.`);
+      const failureCount = this.getFailureCount(company.symbol, trendType.id);
+      this.incrementFailure(company.symbol, trendType.id);
+      const newFailureCount = this.getFailureCount(company.symbol, trendType.id);
+      
+      console.error(`createTrend: Failed to get trends for ${company.symbol} with trend type '${trendType.dataValues.name}'. Attempt ${newFailureCount}.`);
+      
+      if (newFailureCount >= MAXIMUM_RETRIES) {
+        console.log(`createTrend: Maximum retries reached for ${company.symbol} / ${trendType.dataValues.name}. Stopping attempts for this combo.`);
+        this.addToStoppedTrying(company.symbol, trendType.id);
       }
       return;
     }
+
     const stdDev = standardDev(trendResults.map((obj) => obj.value[0]));
     const dayifier = 24 * 60 * 60;
     const day6 = this.#midnight / (dayifier * 1000);
@@ -206,19 +340,15 @@ class TrendHandler {
 
     dbData.standardDeviation = stdDev.toFixed(3);
     dbData.CompanyId = company.id;
-    dbData.TrendTypeId = 1; // currently only one trend type, so hardcoding to 1. Will need to be dynamic if more trend types are added in the future.
+    dbData.TrendTypeId = trendType.id;
     const newTrend = await db.Trend.create(dbData);
-    const updated = await db.Company.update(
-      { checkedAt: this.#midnight },
-      { where: { id: dbData.CompanyId } }
-    );
-    if (updated && newTrend && newTrend.id) {
-      this.decrementToCollect();
-      return newTrend;
-    } else console.log(`updated: ${updated}`)
+    
+    console.log(`createTrend: Successfully created trend for ${company.symbol} with trend type '${trendType.dataValues.name}'`);
+    return newTrend;
 
   } catch (err) {
     console.error("createTrend: " + err);
+    return null;
   }
 };
 
