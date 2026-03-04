@@ -3,6 +3,7 @@ const Op = require('sequelize').Op;
 const db = require('../../models');
 const searchTrends = require('./searchTrends');
 const checkHit = require('./checkHit');
+const checkNotableHit = require('./checkNotableHit');
 const sequelize = require('sequelize');
 
 const MINIMUM_TREND_INTERVAL = 20 * 1000; // 20 seconds in milliseconds
@@ -126,6 +127,16 @@ class TrendHandler {
     const trend = await this.createTrend(company, trendType);
     
     if (trend) {
+      // Check hit against new trend
+      if (company.Trends && company.Trends[0]) {
+        const topHit = await checkHit(company, trend);
+        
+        // Check for notable hits if a topHit was created
+        if (topHit) {
+          await checkNotableHit(company, this.#midnight);
+        }
+      }
+
       // Check if all trendTypes for this company have been collected
       const allCollected = await this.areAllTrendTypesCollected(company.id);
       if (allCollected) {
@@ -136,11 +147,6 @@ class TrendHandler {
         );
         this.decrementToCollect();
         console.log(`scheduleRecurringCollection: All trend types collected for ${company.symbol}. Updated checked_at.`);
-      }
-      
-      // Check hit against new trend
-      if (company.Trends && company.Trends[0]) {
-        checkHit(company, trend);
       }
     }
 
