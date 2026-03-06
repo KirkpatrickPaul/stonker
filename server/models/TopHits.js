@@ -1,7 +1,12 @@
 module.exports = function(sequelize, DataTypes) {
   const TopHit = sequelize.define('top_hits', {
-    z_score: DataTypes.FLOAT(5, 2),
-    standardDeviation: DataTypes.FLOAT(8, 4)
+    z_score: {
+      type: DataTypes.FLOAT(5, 2),
+      field: 'z_score'
+    },
+    standardDeviation: {
+      type: DataTypes.FLOAT(8, 4),
+    },
   });
 
   TopHit.associate = function(models) {
