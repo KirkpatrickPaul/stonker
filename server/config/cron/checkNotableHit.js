@@ -2,9 +2,9 @@ const db = require('../../models');
 const { Op } = require('sequelize');
 
 // Minimum movement threshold as a percentage (4% minimum to avoid noise)
-const MINIMUM_MOVEMENT_PERCENTAGE = 0.04;
+const MINIMUM_MOVEMENT_PERCENTAGE = 1.4;
 // Minimum composite score threshold for notable hits
-const MINIMUM_COMPOSITE_SCORE = 0.10; // 10%
+const MINIMUM_COMPOSITE_SCORE = 3.5;
 
 /**
  * Check if a company has a sustained spike (topHits for multiple consecutive days)
@@ -46,7 +46,7 @@ const checkSustainedSpike = async (company, midnight) => {
     // Check if hits span at least 3 days (can have gaps)
     const daySpan = sortedDays[0] - sortedDays[sortedDays.length - 1];
     
-    if (daySpan >= 2) {
+    if (daySpan >= 3) {
       // At least 3 days with hits in the last several days
       const allHitIds = topHits.map(h => h.id);
       return { triggered: true, daysWithHits: sortedDays.length, hitIds: allHitIds };
@@ -87,7 +87,7 @@ const checkMultiTrendAnomaly = async (company, midnight) => {
     // Calculate composite score from z-scores
     let totalZScore = 0;
     topHits.forEach(hit => {
-      totalZScore += Math.abs(hit.z_score || 0);
+      totalZScore += hit.z_score || 0;
     });
 
     const compositeScore = totalZScore / topHits.length;
@@ -125,10 +125,10 @@ const checkCompositeSurge = async (company, midnight) => {
     // Sum up the z-scores
     let totalScore = 0;
     topHits.forEach(hit => {
-      totalScore += Math.abs(hit.z_score || 0);
+      totalScore += hit.z_score || 0;
     });
 
-    // Check if composite score meets minimum threshold (10%)
+    // Check if composite score meets minimum threshold
     if (totalScore < MINIMUM_COMPOSITE_SCORE) {
       return { triggered: false, score: totalScore, hitIds: [] };
     }

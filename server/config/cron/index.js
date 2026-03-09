@@ -5,9 +5,8 @@ const searchTrends = require('./searchTrends');
 const checkHit = require('./checkHit');
 const checkNotableHit = require('./checkNotableHit');
 const sequelize = require('sequelize');
+// const removeKeywords = require('./removeKeywords');
 
-const MINIMUM_TREND_INTERVAL = 10 * 1000; // 10 seconds in milliseconds
-const MAXIMUM_ADDITIONAL_INTERVAL = 40 * 1000; // 40 seconds in milliseconds
 const MAXIMUM_RETRIES = 3;
 
 const standardDev = function(array) {
@@ -129,12 +128,7 @@ class TrendHandler {
     if (trend) {
       // Check hit against new trend
       if (company.Trends && company.Trends[0]) {
-        const topHit = await checkHit(company, trend);
-        
-        // Check for notable hits if a topHit was created
-        if (topHit) {
-          await checkNotableHit(company, this.#midnight);
-        }
+        await checkHit(company, trend);
       }
 
       // Check if all trendTypes for this company have been collected
@@ -151,13 +145,12 @@ class TrendHandler {
     }
 
     // Schedule the next collection with a random interval
-    const timeMiddle = MAXIMUM_ADDITIONAL_INTERVAL / 2;
-    const lowVal = MINIMUM_TREND_INTERVAL + Math.floor(Math.random() * timeMiddle);
-    const highVal = MINIMUM_TREND_INTERVAL + timeMiddle + Math.floor(Math.random() * timeMiddle);
+    const lowVal = 10000 + Math.floor(Math.random() * 6000);
+    const highVal = 22000 + Math.floor(Math.random() * 17000);
     const timer = setTimeout(() => {
       this.scheduleRecurringCollection();
       
-    }, (lowVal + Math.floor((Math.random() * highVal) )));
+    }, (lowVal + Math.floor((Math.random() * (highVal - lowVal)) )));
     this.#timerId = timer;
   }
 
@@ -270,7 +263,8 @@ class TrendHandler {
     }
     
     // Replace %f in syntax with the actual field value
-    const searchQuery = trendType.dataValues.syntax.replace('%f', fieldValue);
+    let searchQuery = trendType.dataValues.syntax.replace('%f', fieldValue);
+    // searchQuery = removeKeywords(searchQuery);
     console.log(`createTrend: Searching for '${searchQuery}' using trend type '${trendType.dataValues.name}' for company ${company.symbol}`);
     
     const res = await searchTrends(searchQuery, this.#midnight);
@@ -367,8 +361,66 @@ class TrendHandler {
 
 trendHandler = new TrendHandler();
 
+/**
+ * Check for notable hits for all companies that have collected trends today
+ */
+const checkNotableHitsForDay = async () => {
+  try {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setUTCHours(0, 0, 0, 0);
+
+    console.log('checkNotableHitsForDay: Starting notable hits check for the day.');
+
+    // Get all companies that collected trends today (have trends created since midnight)
+    const companies = await db.Company.findAll({
+      include: [{
+        model: db.Trend,
+        where: {
+          createdAt: { [Op.gte]: midnight }
+        },
+        required: true
+      }],
+      attributes: ['id', 'symbol']
+    });
+
+    if (!companies || companies.length === 0) {
+      console.log('checkNotableHitsForDay: No companies with trends collected today.');
+      return;
+    }
+
+    console.log(`checkNotableHitsForDay: Checking ${companies.length} companies for notable hits.`);
+
+    // Check each company for notable hits
+    for (const company of companies) {
+      try {
+        await checkNotableHit(company, midnight);
+      } catch (err) {
+        console.error(`checkNotableHitsForDay: Error checking notable hits for ${company.symbol}: ${err.message}`);
+      }
+    }
+
+    console.log('checkNotableHitsForDay: Completed notable hits check for the day.');
+  } catch (err) {
+    console.error(`checkNotableHitsForDay: Error: ${err.message}`);
+  }
+};
+
+/**
+ * Schedule the notable hits check to run daily at 5:00:30 PM UTC
+ */
+const scheduleNotableHitsCheck = () => {
+  cron.schedule('30 0 17 * * *', () => {
+    console.log('Scheduled notable hits check triggered.');
+    checkNotableHitsForDay();
+  });
+  console.log('Notable hits check scheduled for 17:00:30 UTC daily.');
+};
+
 const collectTrends = async () => {
   await trendHandler.initialize();
   await trendHandler.start();
 }
+
 module.exports = collectTrends;
+module.exports.checkNotableHitsForDay = checkNotableHitsForDay;

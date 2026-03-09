@@ -5,7 +5,6 @@ const PORT = process.env.PORT || 3001;
 
 
 async function callEndpoint(path) {
-    console.log('admin token', process.env.ADMIN_TOKEN);
   const res = await fetch(`http://localhost:${PORT}${path}`, {
     method: 'POST',
     headers: {
